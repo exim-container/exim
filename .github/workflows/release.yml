@@ -8,6 +8,11 @@ on:
       - Containerfile
       - Makefile-Linux
   workflow_dispatch:
+    inputs:
+      force:
+        description: Publish even if the image content is unchanged
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -32,6 +37,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      inputs: ${{ steps.version.outputs.inputs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,8 +54,12 @@ jobs:
           last="$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${version}-r" --jq '.[].ref' \
             | sed -n "s|^refs/tags/${version//./\\.}-r\([0-9]\+\)$|\1|p" | sort -n | tail -n 1)"
           tag="${version}-r$(( ${last:-0} + 1 ))"
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          inputs="$(grep -v '^ENV DEBIAN_SNAPSHOT=' Containerfile | cat - Makefile-Linux | sha256sum | cut -d ' ' -f 1)"
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+            echo "inputs=${inputs}"
+          } >> "${GITHUB_OUTPUT}"
           echo "Releasing ${tag}" >> "${GITHUB_STEP_SUMMARY}"
 
   image:
@@ -90,6 +100,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
       - name: Smoke test
         run: scripts/smoke-test.sh exim:test
+      - name: List the packages
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p packages
+          docker run --rm exim:test dpkg-query -W -f '${Package}=${Version}\n' | sort | sed "s/^/${ARCH} /" > "packages/${ARCH}.txt"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: packages-${{ matrix.arch }}
+          path: packages/*
+          if-no-files-found: error
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -130,19 +151,52 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
       TAG: ${{ needs.version.outputs.tag }}
+      INPUTS: ${{ needs.version.outputs.inputs }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: digest-*
           path: digests
           merge-multiple: true
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: packages-*
+          path: packages
+          merge-multiple: true
+      - id: compare
+        name: Compare with the previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          {
+            echo "exim ${VERSION}"
+            echo "inputs ${INPUTS}"
+            cat packages/*.txt
+          } > release.txt
+          if ! gh release download --repo "${GITHUB_REPOSITORY}" --pattern release.txt --output previous.txt 2>/dev/null; then
+            : > previous.txt
+          fi
+          if [ "${FORCE}" != "true" ] && cmp -s previous.txt release.txt; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            echo "Nothing changed since the previous release, nothing published" >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          echo "changed=true" >> "${GITHUB_OUTPUT}"
+          join -a 1 -a 2 -e none -o 0,1.2,2.2 \
+            <(sed -n 's/^amd64 \([^=]*\)=/\1 /p' previous.txt | sort -k 1,1) \
+            <(sed -n 's/^amd64 \([^=]*\)=/\1 /p' release.txt | sort -k 1,1) \
+            | awk '$2 != $3 { printf "- `%s` %s → %s\n", $1, $2, $3 }' > changes.md
+      - if: steps.compare.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: steps.compare.outputs.changed == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - id: manifest
+        if: steps.compare.outputs.changed == 'true'
         name: Create the manifest list
         working-directory: digests
         run: |
@@ -164,12 +218,14 @@ jobs:
             "${sources[@]}"
           digest="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .Manifest}}' | jq -r .digest)"
           echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      - if: steps.compare.outputs.changed == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.manifest.outputs.digest }}
           push-to-registry: true
       - name: Create the release
+        if: steps.compare.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           DIGEST: ${{ steps.manifest.outputs.digest }}
@@ -177,16 +233,35 @@ jobs:
           {
             echo "Exim ${VERSION}, built from the upstream tag \`exim-${VERSION}\` on Debian 13."
             echo
+            if [ -s changes.md ] && [ -s previous.txt ]; then
+              echo "Updated packages:"
+              echo
+              cat changes.md
+              echo
+            fi
             echo '```sh'
             echo "docker pull ${IMAGE}:${TAG}"
             echo '```'
             echo
             echo "Digest: \`${DIGEST}\`"
           } > notes.md
-          gh release create "${TAG}" \
+          gh release create "${TAG}" release.txt \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --title "Exim ${VERSION} (${TAG##*-})" \
             --notes-file notes.md \
             --generate-notes \
             --latest
+
+  cleanup:
+    name: Clean up untagged images
+    needs: publish
+    if: always() && needs.publish.result != 'skipped'
+    runs-on: ubuntu-26.04
+    permissions:
+      packages: write
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          package: exim
+          delete-untagged: true
