@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    "helpers:pinGitHubActionDigests",
+    "docker:pinDigests"
+  ],
+  "timezone": "Europe/Paris",
+  "dockerfile": {
+    "managerFilePatterns": ["/(^|/)Containerfile$/"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Exim release in the Containerfile",
+      "managerFilePatterns": ["/(^|/)Containerfile$/"],
+      "matchStrings": ["ENV EXIM_VERSION=(?<currentValue>\\S+)"],
+      "depNameTemplate": "exim",
+      "packageNameTemplate": "https://code.exim.org/exim/exim.git",
+      "datasourceTemplate": "git-tags",
+      "versioningTemplate": "loose",
+      "extractVersionTemplate": "^exim-(?<version>\\d+(\\.\\d+)+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchDepNames": ["exim"],
+      "semanticCommitType": "feat",
+      "commitMessageTopic": "Exim"
+    },
+    {
+      "matchManagers": ["dockerfile"],
+      "semanticCommitType": "fix",
+      "groupName": "Debian base image"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "semanticCommitType": "ci",
+      "groupName": "GitHub Actions",
+      "schedule": ["before 6am on monday"]
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
+      "automerge": true
+    }
+  ]
+}
