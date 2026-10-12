@@ -1,11 +1,33 @@
 FROM docker.io/library/debian:13.7-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS base
 
 ENV EXIM_VERSION=4.100.1
+ENV DEBIAN_SNAPSHOT=20261012T144258Z
+
+RUN \
+    rm -f /etc/apt/sources.list.d/debian.sources && \
+    printf '%s\n' \
+        'Types: deb' \
+        "URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}" \
+        'Suites: trixie trixie-updates' \
+        'Components: main' \
+        'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' \
+        '' \
+        'Types: deb' \
+        "URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}" \
+        'Suites: trixie-security' \
+        'Components: main' \
+        'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' \
+        > /etc/apt/sources.list.d/debian.sources && \
+    printf '%s\n' \
+        'Acquire::Check-Valid-Until "false";' \
+        'Acquire::Retries "5";' \
+        > /etc/apt/apt.conf.d/99snapshot
 
 FROM base AS builder
 
 RUN \
     apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         git \
         build-essential \
@@ -40,6 +62,7 @@ FROM base
 
 RUN \
     apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         libperl5.40 \
         libmariadb3 \
