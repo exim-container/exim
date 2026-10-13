@@ -23,7 +23,7 @@ A manual run with `force` publishes even when nothing changed.
 Renovate opens the pull requests:
 
 - a new Exim release, from the `exim-X.Y.Z` tags of `https://code.exim.org/exim/exim.git`, release candidates excluded;
-- the latest `debian-security` snapshot, at most once a day before 6am, from `https://snapshot.debian.org/mr/timestamp/?archive=debian-security`;
+- the latest `debian-security` snapshot, whenever Renovate runs, from `https://snapshot.debian.org/mr/timestamp/?archive=debian-security`;
 - a new digest or point release of the `debian:13-slim` base image;
 - GitHub Actions, grouped, on Monday mornings.
 
