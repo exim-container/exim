@@ -63,9 +63,6 @@
       ],
       "semanticCommitType": "fix",
       "commitMessageTopic": "Debian snapshot",
-      "schedule": [
-        "before 6am"
-      ],
       "automerge": true,
       "separateMajorMinor": false
     },
