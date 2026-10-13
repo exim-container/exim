@@ -73,7 +73,7 @@
       "semanticCommitType": "ci",
       "groupName": "GitHub Actions",
       "schedule": [
-        "before 6am on monday"
+        "on monday"
       ]
     },
     {
@@ -82,9 +82,17 @@
         "patch",
         "digest",
         "pin",
-        "pinDigest"
+        "pinDigest",
+        "lockFileMaintenance"
       ],
       "automerge": true
+    },
+    {
+      "matchCurrentVersion": "/^v?0\\./",
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "automerge": false
     }
   ],
   "customDatasources": {
