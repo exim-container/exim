@@ -7,7 +7,6 @@
     "docker:pinDigests"
   ],
   "timezone": "Europe/Paris",
-  "automergeType": "branch",
   "dockerfile": {
     "managerFilePatterns": [
       "/(^|/)Containerfile$/"
