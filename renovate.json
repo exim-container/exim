@@ -65,6 +65,7 @@
       "semanticCommitType": "fix",
       "commitMessageTopic": "Debian snapshot",
       "automerge": true,
+      "automergeType": "pr",
       "separateMajorMinor": false
     },
     {
