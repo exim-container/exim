@@ -1,7 +1,7 @@
 FROM docker.io/library/debian:13.7-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS base
 
 ENV EXIM_VERSION=4.100.1
-ENV DEBIAN_SNAPSHOT=20261112T222314Z
+ENV DEBIAN_SNAPSHOT=20261112T230856Z
 
 RUN \
     rm -f /etc/apt/sources.list.d/debian.sources && \
